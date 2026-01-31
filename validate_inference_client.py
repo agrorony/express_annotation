@@ -7,7 +7,7 @@ import requests
 # This script is a minimal validation client for the SAM inference server. No napari involved.
 
 BASE_URL = "https://monogenetic-nonmalarial-nia.ngrok-free.dev"
-IMAGE_PATH = r"C:\PATH\TO\IMAGE.png"
+IMAGE_PATH = r"C:\Users\ronys\soil_and_water\research_exercise\express_annotation\test_images\roi_0000_slice0120_norm8_clahe61_med5.png"
 BOX = [50, 50, 300, 300]
 
 
