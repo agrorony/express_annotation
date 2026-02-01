@@ -2,3 +2,7 @@ flask
 imageio
 numpy
 requests
+scipy
+pillow
+pyyaml
+matplotlib

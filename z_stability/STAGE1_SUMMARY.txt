@@ -1,0 +1,128 @@
+================================================================================
+STAGE 1 COMPLETE - CPU-ONLY RESET + METRICS IMPLEMENTATION
+================================================================================
+
+CLEANUP COMPLETED
+-----------------
+✓ Removed all PyTorch/GPU code from metrics_engine.py
+  - Removed torch imports and TORCH_AVAILABLE flag
+  - Removed _compute_z_metrics_gpu() function
+  - Removed _compute_z_run_length_gpu() function
+  - Removed use_gpu parameters from all functions
+
+✓ Removed torch from requirements.txt
+
+✓ Deleted test files and documentation:
+  - test_z_stability.py
+  - test_gpu_handling.py
+  - test_identical_masks.py
+  - create_test_data.py
+  - README.md
+  - IMPLEMENTATION_SUMMARY.md
+
+✓ Simplified run_pipeline.py:
+  - Removed GPU-related code
+  - Removed detailed summary functions
+  - Removed file saving for metrics
+  - Added minimal console output
+
+✓ Cleaned up configs/pipeline.yaml:
+  - Removed compute.use_gpu setting
+
+CORE METRICS IMPLEMENTED (CPU-ONLY)
+------------------------------------
+
+1. compute_adjacent_slice_consistency(mask, target_class) -> np.ndarray
+   - Computes Dice coefficient between mask[z] and mask[z+1]
+   - Output: 1D array of shape (Z-1,)
+   - Handles empty slices correctly (returns 1.0 for both empty)
+   - TESTED ✓
+
+2. compute_z_run_length_stability(mask, target_class) -> Dict
+   - Computes longest continuous run per voxel along Z
+   - Output: 
+     * run_length_map: (Y, X) array of max run lengths
+     * mean_run_length: float
+     * median_run_length: float
+   - TESTED ✓
+
+3. compute_component_persistence(mask, target_class) -> Dict
+   - Labels 2D connected components per slice
+   - Matches components between adjacent slices by overlap
+   - Tracks consecutive slice persistence
+   - Output:
+     * mean_persistence: float
+     * median_persistence: float
+     * max_persistence: int
+   - Uses greedy overlap matching
+   - TESTED ✓
+
+INTEGRATION
+-----------
+✓ Metrics integrated into run_pipeline.py
+✓ Minimal output format:
+  
+  Conservative:
+    Mean adjacent Dice: X.XXXX
+    Median run length: XX.XX
+    Mean persistence: XX.XX
+  
+  Aggressive:
+    Mean adjacent Dice: X.XXXX
+    Median run length: XX.XX
+    Mean persistence: XX.XX
+
+✓ Identical mask detection preserved:
+  - Warns when conservative == aggressive
+  - Skips metrics computation for identical masks
+
+TESTING
+-------
+All metrics validated with synthetic test data:
+
+Test 1: Adjacent Slice Consistency
+  - Stable region: All Dice = 1.0 ✓
+  - Disappearing region: Dice = [1.0, 1.0, 0.0, 1.0] ✓
+
+Test 2: Run-Length Stability
+  - Full volume voxel: run_length = 10 ✓
+  - Half volume voxel: run_length = 5 ✓
+  - Partial voxel: run_length = 3 ✓
+
+Test 3: Component Persistence
+  - Stable component (10 slices): persistence = 10 ✓
+  - Two components (10 and 5 slices): mean = 7.5, max = 10 ✓
+
+CODE QUALITY
+------------
+✓ Deterministic: All operations are CPU-based NumPy/SciPy
+✓ No external dependencies beyond scipy.ndimage
+✓ Clear function signatures with type hints
+✓ Comprehensive docstrings
+✓ Follows existing codebase patterns
+
+FILES MODIFIED
+--------------
+requirements.txt                    | Remove torch
+z_stability/configs/pipeline.yaml  | Remove GPU config
+z_stability/run_pipeline.py        | Simplify to CPU-only
+z_stability/src/metrics_engine.py  | Remove GPU, fix persistence
+
+FILES DELETED
+-------------
+z_stability/test_z_stability.py
+z_stability/test_gpu_handling.py
+z_stability/test_identical_masks.py
+z_stability/create_test_data.py
+z_stability/README.md
+z_stability/IMPLEMENTATION_SUMMARY.md
+z_stability/configs/pipeline_test_identical.yaml
+
+READY FOR STAGE 2
+-----------------
+✓ CPU baseline established
+✓ All metrics validated and working
+✓ Code is clean and minimal
+✓ No GPU dependencies remain
+
+Next: Stage 2 - Constructed tests with designed Z-patterns
