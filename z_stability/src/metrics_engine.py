@@ -2,8 +2,18 @@ import numpy as np
 from scipy.ndimage import label, convolve
 from typing import Dict
 
-def compute_z_metrics(volume: np.ndarray, target_class: int, window_size: int, use_gpu: bool = False) -> Dict[str, np.ndarray]:
-    if use_gpu: raise NotImplementedError("GPU acceleration will be added in Phase 2")
+def compute_z_metrics(volume: np.ndarray, target_class: int, window_size: int) -> Dict[str, np.ndarray]:
+    """
+    Compute Z-axis stability metrics including frequency, flip rate, and class fractions.
+    
+    Args:
+        volume: 3D volume (Z, Y, X)
+        target_class: Target class to analyze
+        window_size: Window size for local Z analysis
+    
+    Returns:
+        Dictionary with metric arrays
+    """
     Z, Y, X = volume.shape
     half_window = window_size // 2
     frequency = np.zeros((Z, Y, X), dtype=np.float32)
@@ -28,7 +38,17 @@ def compute_z_metrics(volume: np.ndarray, target_class: int, window_size: int, u
     return {'frequency': frequency, 'flip_rate': flip_rate, 'class_0_fraction': class_0_fraction, 
             'class_2_fraction': class_2_fraction, 'effective_window_size': effective_window_size}
 
-def compute_2d_metrics(slice_mask: np.ndarray, target_class: int, use_gpu: bool = False) -> Dict[str, np.ndarray]:
+def compute_2d_metrics(slice_mask: np.ndarray, target_class: int) -> Dict[str, np.ndarray]:
+    """
+    Compute 2D spatial metrics for a single slice.
+    
+    Args:
+        slice_mask: 2D mask slice (Y, X)
+        target_class: Target class to analyze
+    
+    Returns:
+        Dictionary with metric arrays
+    """
     Y, X = slice_mask.shape
     class_0_neighbors = np.zeros((Y, X), dtype=np.float32)
     class_2_neighbors = np.zeros((Y, X), dtype=np.float32)
@@ -59,13 +79,178 @@ def compute_2d_metrics(slice_mask: np.ndarray, target_class: int, use_gpu: bool 
     
     return {'class_0_neighbors': class_0_neighbors, 'class_2_neighbors': class_2_neighbors, 'component_size': component_size}
 
-def compute_2d_metrics_stack(volume: np.ndarray, target_class: int, use_gpu: bool = False) -> Dict[str, np.ndarray]:
+def compute_2d_metrics_stack(volume: np.ndarray, target_class: int) -> Dict[str, np.ndarray]:
+    """
+    Compute 2D spatial metrics for all slices in a volume.
+    
+    Args:
+        volume: 3D volume (Z, Y, X)
+        target_class: Target class to analyze
+    
+    Returns:
+        Dictionary with 3D metric arrays
+    """
     Z = volume.shape[0]
-    first = compute_2d_metrics(volume[0], target_class, use_gpu)
+    first = compute_2d_metrics(volume[0], target_class)
     metrics_3d = {k: np.zeros((Z,) + volume.shape[1:], dtype=v.dtype) for k, v in first.items()}
-    print(f"Computing 2D metrics for {Z} slices...")
     for z in range(Z):
-        res = compute_2d_metrics(volume[z], target_class, use_gpu)
-        for k, v in res.items(): metrics_3d[k][z] = v
-        if (z+1) % 50 == 0: print(f" Processed {z+1}/{Z}")
+        res = compute_2d_metrics(volume[z], target_class)
+        for k, v in res.items(): 
+            metrics_3d[k][z] = v
     return metrics_3d
+
+def compute_adjacent_slice_consistency(mask: np.ndarray, target_class: int) -> np.ndarray:
+    """
+    Compute Dice coefficient between adjacent slices for the target class.
+    
+    Args:
+        mask: 3D mask volume (Z, Y, X)
+        target_class: Target class to analyze
+    
+    Returns:
+        1D array of Dice scores for each adjacent slice pair (length Z-1)
+    """
+    Z = mask.shape[0]
+    dice_scores = np.zeros(Z - 1, dtype=np.float32)
+    
+    for z in range(Z - 1):
+        slice_a = (mask[z] == target_class)
+        slice_b = (mask[z + 1] == target_class)
+        
+        intersection = np.sum(slice_a & slice_b)
+        union = np.sum(slice_a) + np.sum(slice_b)
+        
+        if union > 0:
+            dice_scores[z] = 2.0 * intersection / union
+        else:
+            dice_scores[z] = 1.0  # Both empty, perfect agreement
+    
+    return dice_scores
+
+def compute_z_run_length_stability(mask: np.ndarray, target_class: int) -> Dict[str, float]:
+    """
+    Compute Z-axis run-length stability: longest continuous run per voxel.
+    
+    Args:
+        mask: 3D mask volume (Z, Y, X)
+        target_class: Target class to analyze
+    
+    Returns:
+        Dictionary with 'run_length_map' (Y, X) and statistics
+    """
+    Z, Y, X = mask.shape
+    max_run_length = np.zeros((Y, X), dtype=np.int32)
+    
+    target_volume = (mask == target_class).astype(np.int32)
+    
+    for y in range(Y):
+        for x in range(X):
+            z_line = target_volume[:, y, x]
+            current_run = 0
+            max_run = 0
+            for val in z_line:
+                if val == 1:
+                    current_run += 1
+                    max_run = max(max_run, current_run)
+                else:
+                    current_run = 0
+            max_run_length[y, x] = max_run
+    
+    runs = max_run_length[max_run_length > 0]
+    mean_run = float(np.mean(runs)) if len(runs) > 0 else 0.0
+    median_run = float(np.median(runs)) if len(runs) > 0 else 0.0
+    
+    return {
+        'run_length_map': max_run_length,
+        'mean_run_length': mean_run,
+        'median_run_length': median_run
+    }
+
+def compute_component_persistence(mask: np.ndarray, target_class: int) -> Dict[str, float]:
+    """
+    Track connected components slice-to-slice and measure persistence.
+    
+    Args:
+        mask: 3D mask volume (Z, Y, X)
+        target_class: Target class to analyze
+    
+    Returns:
+        Dictionary with persistence statistics
+    """
+    Z = mask.shape[0]
+    structure = np.ones((3, 3), dtype=int)
+    
+    # Track components through slices
+    prev_labeled = None
+    prev_num = 0
+    component_lifespans = {}  # Maps prev_id -> lifespan count
+    next_component_id = 0
+    
+    for z in range(Z):
+        slice_mask = (mask[z] == target_class)
+        if not np.any(slice_mask):
+            # Reset tracking if empty slice
+            prev_labeled = None
+            prev_num = 0
+            continue
+        
+        curr_labeled, curr_num = label(slice_mask, structure=structure)
+        
+        if prev_labeled is not None:
+            # Track which previous components were matched
+            matched_prev = set()
+            curr_to_prev = {}  # Maps current ID to previous ID
+            
+            # Match components between slices by overlap
+            for curr_id in range(1, curr_num + 1):
+                curr_component = (curr_labeled == curr_id)
+                best_overlap = 0
+                best_prev_id = None
+                
+                for prev_id in range(1, prev_num + 1):
+                    prev_component = (prev_labeled == prev_id)
+                    overlap = np.sum(curr_component & prev_component)
+                    if overlap > best_overlap:
+                        best_overlap = overlap
+                        best_prev_id = prev_id
+                
+                # Track persistence
+                if best_overlap > 0 and best_prev_id is not None:
+                    # Component continues from previous slice
+                    curr_to_prev[curr_id] = best_prev_id
+                    matched_prev.add(best_prev_id)
+                    if best_prev_id not in component_lifespans:
+                        component_lifespans[best_prev_id] = 2  # Previous slice + current slice
+                    else:
+                        component_lifespans[best_prev_id] += 1
+                else:
+                    # New component appearing in current slice
+                    pass  # Don't add yet, wait to see if it continues
+            
+            # Handle components that didn't match - they ended
+            # (their lifespans are already recorded)
+        else:
+            # First non-empty slice - initialize tracking
+            for curr_id in range(1, curr_num + 1):
+                # Start tracking but don't count yet (need at least 2 slices for persistence)
+                pass
+        
+        prev_labeled = curr_labeled
+        prev_num = curr_num
+    
+    # Compute statistics
+    if component_lifespans:
+        lifespans = list(component_lifespans.values())
+        mean_persistence = float(np.mean(lifespans))
+        median_persistence = float(np.median(lifespans))
+        max_persistence = int(np.max(lifespans))
+    else:
+        mean_persistence = 0.0
+        median_persistence = 0.0
+        max_persistence = 0
+    
+    return {
+        'mean_persistence': mean_persistence,
+        'median_persistence': median_persistence,
+        'max_persistence': max_persistence
+    }

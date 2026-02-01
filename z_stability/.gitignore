@@ -1,0 +1,14 @@
+# Test data and outputs
+data/
+outputs/
+outputs_identical/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Generated output files only (not test fixtures)
+outputs/**/*.npy
