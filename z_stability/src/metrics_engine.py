@@ -183,7 +183,7 @@ def compute_component_persistence(mask: np.ndarray, target_class: int) -> Dict[s
     # Track components through slices
     prev_labeled = None
     prev_num = 0
-    component_lifespans = {}  # component_id -> lifespan
+    component_lifespans = {}  # Maps prev_id -> lifespan count
     next_component_id = 0
     
     for z in range(Z):
@@ -197,6 +197,10 @@ def compute_component_persistence(mask: np.ndarray, target_class: int) -> Dict[s
         curr_labeled, curr_num = label(slice_mask, structure=structure)
         
         if prev_labeled is not None:
+            # Track which previous components were matched
+            matched_prev = set()
+            curr_to_prev = {}  # Maps current ID to previous ID
+            
             # Match components between slices by overlap
             for curr_id in range(1, curr_num + 1):
                 curr_component = (curr_labeled == curr_id)
@@ -211,19 +215,25 @@ def compute_component_persistence(mask: np.ndarray, target_class: int) -> Dict[s
                         best_prev_id = prev_id
                 
                 # Track persistence
-                if best_overlap > 0:
+                if best_overlap > 0 and best_prev_id is not None:
                     # Component continues from previous slice
-                    if best_prev_id in component_lifespans:
+                    curr_to_prev[curr_id] = best_prev_id
+                    matched_prev.add(best_prev_id)
+                    if best_prev_id not in component_lifespans:
+                        component_lifespans[best_prev_id] = 2  # Previous slice + current slice
+                    else:
                         component_lifespans[best_prev_id] += 1
                 else:
-                    # New component
-                    component_lifespans[next_component_id] = 1
-                    next_component_id += 1
+                    # New component appearing in current slice
+                    pass  # Don't add yet, wait to see if it continues
+            
+            # Handle components that didn't match - they ended
+            # (their lifespans are already recorded)
         else:
-            # First non-empty slice
+            # First non-empty slice - initialize tracking
             for curr_id in range(1, curr_num + 1):
-                component_lifespans[next_component_id] = 1
-                next_component_id += 1
+                # Start tracking but don't count yet (need at least 2 slices for persistence)
+                pass
         
         prev_labeled = curr_labeled
         prev_num = curr_num
