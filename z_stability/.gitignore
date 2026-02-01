@@ -1,0 +1,14 @@
+# Test data and outputs
+data/
+outputs/
+outputs_identical/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Test files (keep in repo but ignore output)
+*.npy
