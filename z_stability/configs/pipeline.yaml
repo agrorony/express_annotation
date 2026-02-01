@@ -15,8 +15,6 @@ thresholds:
     max_flip_rate: 2
     min_long_frequency: 0.3
     min_component_size: 10
-compute:
-  use_gpu: false
 output:
   save_diagnostic_maps: true
   output_folder: "outputs"

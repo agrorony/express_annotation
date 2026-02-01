@@ -1,35 +1,19 @@
 import numpy as np
 from scipy.ndimage import label, convolve
-from typing import Dict, Optional, Tuple, Any
-try:
-    import torch
-    TORCH_AVAILABLE = True
-except ImportError:
-    TORCH_AVAILABLE = False
+from typing import Dict
 
-def compute_z_metrics(volume: np.ndarray, target_class: int, window_size: int, use_gpu: bool = False) -> Dict[str, np.ndarray]:
+def compute_z_metrics(volume: np.ndarray, target_class: int, window_size: int) -> Dict[str, np.ndarray]:
     """
-    Compute Z-axis stability metrics including frequency, flip rate, class fractions,
-    and optionally using GPU acceleration.
+    Compute Z-axis stability metrics including frequency, flip rate, and class fractions.
     
     Args:
         volume: 3D volume (Z, Y, X)
         target_class: Target class to analyze
         window_size: Window size for local Z analysis
-        use_gpu: If True, use GPU acceleration (requires PyTorch)
     
     Returns:
         Dictionary with metric arrays
     """
-    if use_gpu:
-        if not TORCH_AVAILABLE:
-            raise NotImplementedError("GPU acceleration requires PyTorch. Install with: pip install torch")
-        return _compute_z_metrics_gpu(volume, target_class, window_size)
-    else:
-        return _compute_z_metrics_cpu(volume, target_class, window_size)
-
-def _compute_z_metrics_cpu(volume: np.ndarray, target_class: int, window_size: int) -> Dict[str, np.ndarray]:
-    """CPU implementation of Z-axis metrics."""
     Z, Y, X = volume.shape
     half_window = window_size // 2
     frequency = np.zeros((Z, Y, X), dtype=np.float32)
@@ -54,50 +38,17 @@ def _compute_z_metrics_cpu(volume: np.ndarray, target_class: int, window_size: i
     return {'frequency': frequency, 'flip_rate': flip_rate, 'class_0_fraction': class_0_fraction, 
             'class_2_fraction': class_2_fraction, 'effective_window_size': effective_window_size}
 
-def _compute_z_metrics_gpu(volume: np.ndarray, target_class: int, window_size: int) -> Dict[str, np.ndarray]:
-    """GPU implementation of Z-axis metrics using PyTorch."""
-    Z, Y, X = volume.shape
-    half_window = window_size // 2
+def compute_2d_metrics(slice_mask: np.ndarray, target_class: int) -> Dict[str, np.ndarray]:
+    """
+    Compute 2D spatial metrics for a single slice.
     
-    # Move to GPU
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    if device.type == 'cpu':
-        raise RuntimeError("GPU requested but CUDA is not available")
+    Args:
+        slice_mask: 2D mask slice (Y, X)
+        target_class: Target class to analyze
     
-    volume_gpu = torch.from_numpy(volume).to(device)
-    
-    # Prepare outputs
-    frequency = torch.zeros((Z, Y, X), dtype=torch.float32, device=device)
-    flip_rate = torch.zeros((Z, Y, X), dtype=torch.int32, device=device)
-    class_0_fraction = torch.zeros((Z, Y, X), dtype=torch.float32, device=device)
-    class_2_fraction = torch.zeros((Z, Y, X), dtype=torch.float32, device=device)
-    effective_window_size = torch.zeros((Z, Y, X), dtype=torch.int32, device=device)
-    
-    for z in range(Z):
-        z_start = max(0, z - half_window)
-        z_end = min(Z, z + half_window + 1)
-        window = volume_gpu[z_start:z_end, :, :]
-        window_len = z_end - z_start
-        effective_window_size[z, :, :] = window_len
-        frequency[z] = (window == target_class).sum(dim=0).float() / window_len
-        class_0_fraction[z] = (window == 0).sum(dim=0).float() / window_len
-        class_2_fraction[z] = (window == 2).sum(dim=0).float() / window_len
-        if window_len > 1:
-            transitions = torch.diff(window, dim=0) != 0
-            flip_rate[z] = transitions.sum(dim=0).int()
-    
-    # Move back to CPU as NumPy
-    return {
-        'frequency': frequency.cpu().numpy(),
-        'flip_rate': flip_rate.cpu().numpy(),
-        'class_0_fraction': class_0_fraction.cpu().numpy(),
-        'class_2_fraction': class_2_fraction.cpu().numpy(),
-        'effective_window_size': effective_window_size.cpu().numpy()
-    }
-
-def compute_2d_metrics(slice_mask: np.ndarray, target_class: int, use_gpu: bool = False) -> Dict[str, np.ndarray]:
-    if use_gpu:
-        raise NotImplementedError("GPU acceleration for 2D metrics not implemented - keep on CPU")
+    Returns:
+        Dictionary with metric arrays
+    """
     Y, X = slice_mask.shape
     class_0_neighbors = np.zeros((Y, X), dtype=np.float32)
     class_2_neighbors = np.zeros((Y, X), dtype=np.float32)
@@ -128,15 +79,24 @@ def compute_2d_metrics(slice_mask: np.ndarray, target_class: int, use_gpu: bool 
     
     return {'class_0_neighbors': class_0_neighbors, 'class_2_neighbors': class_2_neighbors, 'component_size': component_size}
 
-def compute_2d_metrics_stack(volume: np.ndarray, target_class: int, use_gpu: bool = False) -> Dict[str, np.ndarray]:
+def compute_2d_metrics_stack(volume: np.ndarray, target_class: int) -> Dict[str, np.ndarray]:
+    """
+    Compute 2D spatial metrics for all slices in a volume.
+    
+    Args:
+        volume: 3D volume (Z, Y, X)
+        target_class: Target class to analyze
+    
+    Returns:
+        Dictionary with 3D metric arrays
+    """
     Z = volume.shape[0]
-    first = compute_2d_metrics(volume[0], target_class, use_gpu)
+    first = compute_2d_metrics(volume[0], target_class)
     metrics_3d = {k: np.zeros((Z,) + volume.shape[1:], dtype=v.dtype) for k, v in first.items()}
-    print(f"Computing 2D metrics for {Z} slices...")
     for z in range(Z):
-        res = compute_2d_metrics(volume[z], target_class, use_gpu)
-        for k, v in res.items(): metrics_3d[k][z] = v
-        if (z+1) % 50 == 0: print(f" Processed {z+1}/{Z}")
+        res = compute_2d_metrics(volume[z], target_class)
+        for k, v in res.items(): 
+            metrics_3d[k][z] = v
     return metrics_3d
 
 def compute_adjacent_slice_consistency(mask: np.ndarray, target_class: int) -> np.ndarray:
@@ -167,31 +127,21 @@ def compute_adjacent_slice_consistency(mask: np.ndarray, target_class: int) -> n
     
     return dice_scores
 
-def compute_z_run_length_stability(volume: np.ndarray, target_class: int, use_gpu: bool = False) -> Dict[str, np.ndarray]:
+def compute_z_run_length_stability(mask: np.ndarray, target_class: int) -> Dict[str, float]:
     """
     Compute Z-axis run-length stability: longest continuous run per voxel.
     
     Args:
-        volume: 3D volume (Z, Y, X)
+        mask: 3D mask volume (Z, Y, X)
         target_class: Target class to analyze
-        use_gpu: If True, use GPU acceleration
     
     Returns:
         Dictionary with 'run_length_map' (Y, X) and statistics
     """
-    if use_gpu:
-        if not TORCH_AVAILABLE:
-            raise NotImplementedError("GPU acceleration requires PyTorch")
-        return _compute_z_run_length_gpu(volume, target_class)
-    else:
-        return _compute_z_run_length_cpu(volume, target_class)
-
-def _compute_z_run_length_cpu(volume: np.ndarray, target_class: int) -> Dict[str, np.ndarray]:
-    """CPU implementation of run-length computation."""
-    Z, Y, X = volume.shape
+    Z, Y, X = mask.shape
     max_run_length = np.zeros((Y, X), dtype=np.int32)
     
-    target_volume = (volume == target_class).astype(np.int32)
+    target_volume = (mask == target_class).astype(np.int32)
     
     for y in range(Y):
         for x in range(X):
@@ -207,8 +157,8 @@ def _compute_z_run_length_cpu(volume: np.ndarray, target_class: int) -> Dict[str
             max_run_length[y, x] = max_run
     
     runs = max_run_length[max_run_length > 0]
-    mean_run = np.mean(runs) if len(runs) > 0 else 0.0
-    median_run = np.median(runs) if len(runs) > 0 else 0.0
+    mean_run = float(np.mean(runs)) if len(runs) > 0 else 0.0
+    median_run = float(np.median(runs)) if len(runs) > 0 else 0.0
     
     return {
         'run_length_map': max_run_length,
@@ -216,45 +166,7 @@ def _compute_z_run_length_cpu(volume: np.ndarray, target_class: int) -> Dict[str
         'median_run_length': median_run
     }
 
-def _compute_z_run_length_gpu(volume: np.ndarray, target_class: int) -> Dict[str, np.ndarray]:
-    """GPU implementation of run-length computation using PyTorch."""
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    if device.type == 'cpu':
-        raise RuntimeError("GPU requested but CUDA is not available")
-    
-    Z, Y, X = volume.shape
-    volume_gpu = torch.from_numpy(volume).to(device)
-    target_volume = (volume_gpu == target_class).int()
-    
-    max_run_length = torch.zeros((Y, X), dtype=torch.int32, device=device)
-    
-    # Process each XY column along Z
-    for y in range(Y):
-        for x in range(X):
-            z_line = target_volume[:, y, x]
-            # Compute run lengths using diff
-            padded = torch.cat([torch.zeros(1, dtype=torch.int32, device=device), z_line, 
-                               torch.zeros(1, dtype=torch.int32, device=device)])
-            changes = torch.diff(padded)
-            starts = torch.where(changes == 1)[0]
-            ends = torch.where(changes == -1)[0]
-            
-            if len(starts) > 0:
-                run_lengths = ends - starts
-                max_run_length[y, x] = torch.max(run_lengths).item()
-    
-    max_run_np = max_run_length.cpu().numpy()
-    runs = max_run_np[max_run_np > 0]
-    mean_run = np.mean(runs) if len(runs) > 0 else 0.0
-    median_run = np.median(runs) if len(runs) > 0 else 0.0
-    
-    return {
-        'run_length_map': max_run_np,
-        'mean_run_length': mean_run,
-        'median_run_length': median_run
-    }
-
-def compute_component_persistence(mask: np.ndarray, target_class: int) -> Dict[str, Any]:
+def compute_component_persistence(mask: np.ndarray, target_class: int) -> Dict[str, float]:
     """
     Track connected components slice-to-slice and measure persistence.
     
@@ -266,8 +178,6 @@ def compute_component_persistence(mask: np.ndarray, target_class: int) -> Dict[s
         Dictionary with persistence statistics
     """
     Z = mask.shape[0]
-    persistence_counts = []
-    
     structure = np.ones((3, 3), dtype=int)
     
     # Track components through slices
@@ -321,9 +231,9 @@ def compute_component_persistence(mask: np.ndarray, target_class: int) -> Dict[s
     # Compute statistics
     if component_lifespans:
         lifespans = list(component_lifespans.values())
-        mean_persistence = np.mean(lifespans)
-        median_persistence = np.median(lifespans)
-        max_persistence = np.max(lifespans)
+        mean_persistence = float(np.mean(lifespans))
+        median_persistence = float(np.median(lifespans))
+        max_persistence = int(np.max(lifespans))
     else:
         mean_persistence = 0.0
         median_persistence = 0.0
@@ -332,6 +242,5 @@ def compute_component_persistence(mask: np.ndarray, target_class: int) -> Dict[s
     return {
         'mean_persistence': mean_persistence,
         'median_persistence': median_persistence,
-        'max_persistence': max_persistence,
-        'component_lifespans': list(component_lifespans.values())
+        'max_persistence': max_persistence
     }
