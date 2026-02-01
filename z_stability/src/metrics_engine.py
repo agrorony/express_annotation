@@ -170,26 +170,55 @@ def compute_component_persistence(mask: np.ndarray, target_class: int) -> Dict[s
     """
     Track connected components slice-to-slice and measure persistence.
     
+    Persistence Definition:
+    -----------------------
+    - A component's persistence = total number of consecutive Z-slices it appears in
+    - Minimum persistence = 2 (component must appear in at least 2 consecutive slices to be counted)
+    - Single-slice components contribute 0 to statistics (not counted as persistent)
+    
+    Empty Slice Handling:
+    ---------------------
+    - If a slice contains no target_class voxels, tracking resets completely
+    - Components before and after empty slices are treated as separate entities
+    - This prevents false continuity across gaps
+    
+    Merge/Split Handling:
+    ---------------------
+    - Uses greedy "best overlap" matching between adjacent slices
+    - If multiple components merge into one:
+      * Only the component with highest pixel overlap is tracked as "continuing"
+      * Other components are considered to have ended
+    - If one component splits into multiple:
+      * Each new component competes independently for overlap with parent
+      * Only the one with highest overlap inherits the persistence count
+    - This is a simplified heuristic; complex topological changes may not be tracked accurately
+    
     Args:
         mask: 3D mask volume (Z, Y, X)
         target_class: Target class to analyze
     
     Returns:
-        Dictionary with persistence statistics
+        Dictionary with persistence statistics:
+        - mean_persistence: Average lifespan of all tracked components
+        - median_persistence: Median lifespan of all tracked components
+        - max_persistence: Longest lifespan observed
+        Returns 0.0/0.0/0 if no components persist for ≥2 slices
     """
     Z = mask.shape[0]
+    # 8-connectivity for 2D component labeling
     structure = np.ones((3, 3), dtype=int)
     
     # Track components through slices
     prev_labeled = None
     prev_num = 0
+    # Maps component_id -> total number of consecutive slices
     component_lifespans = {}  # Maps prev_id -> lifespan count
     next_component_id = 0
     
     for z in range(Z):
         slice_mask = (mask[z] == target_class)
         if not np.any(slice_mask):
-            # Reset tracking if empty slice
+            # Empty slice handling: reset tracking
             prev_labeled = None
             prev_num = 0
             continue
@@ -197,8 +226,9 @@ def compute_component_persistence(mask: np.ndarray, target_class: int) -> Dict[s
         curr_labeled, curr_num = label(slice_mask, structure=structure)
         
         if prev_labeled is not None:
-            # Track which previous components were matched
+            # Match components between current and previous slice
             matched_prev = set()
+            # Greedy best-overlap matching
             curr_to_prev = {}  # Maps current ID to previous ID
             
             # Match components between slices by overlap
@@ -207,6 +237,7 @@ def compute_component_persistence(mask: np.ndarray, target_class: int) -> Dict[s
                 best_overlap = 0
                 best_prev_id = None
                 
+                # Find previous component with maximum pixel overlap
                 for prev_id in range(1, prev_num + 1):
                     prev_component = (prev_labeled == prev_id)
                     overlap = np.sum(curr_component & prev_component)
@@ -214,23 +245,25 @@ def compute_component_persistence(mask: np.ndarray, target_class: int) -> Dict[s
                         best_overlap = overlap
                         best_prev_id = prev_id
                 
-                # Track persistence
+                # Track persistence if overlap exists
                 if best_overlap > 0 and best_prev_id is not None:
                     # Component continues from previous slice
                     curr_to_prev[curr_id] = best_prev_id
                     matched_prev.add(best_prev_id)
                     if best_prev_id not in component_lifespans:
+                        # First continuation: count previous slice + current slice = 2
                         component_lifespans[best_prev_id] = 2  # Previous slice + current slice
                     else:
+                        # Ongoing continuation: increment lifespan
                         component_lifespans[best_prev_id] += 1
                 else:
-                    # New component appearing in current slice
+                    # New component appearing - not yet counted (needs ≥2 slices)
                     pass  # Don't add yet, wait to see if it continues
             
-            # Handle components that didn't match - they ended
+            # Components in prev_labeled that were not matched have ended
             # (their lifespans are already recorded)
         else:
-            # First non-empty slice - initialize tracking
+            # First non-empty slice - components start tracking but not counted yet
             for curr_id in range(1, curr_num + 1):
                 # Start tracking but don't count yet (need at least 2 slices for persistence)
                 pass
@@ -238,13 +271,14 @@ def compute_component_persistence(mask: np.ndarray, target_class: int) -> Dict[s
         prev_labeled = curr_labeled
         prev_num = curr_num
     
-    # Compute statistics
+    # Compute statistics from all tracked lifespans
     if component_lifespans:
         lifespans = list(component_lifespans.values())
         mean_persistence = float(np.mean(lifespans))
         median_persistence = float(np.median(lifespans))
         max_persistence = int(np.max(lifespans))
     else:
+        # No components persisted for ≥2 consecutive slices
         mean_persistence = 0.0
         median_persistence = 0.0
         max_persistence = 0
