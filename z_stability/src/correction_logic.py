@@ -5,6 +5,8 @@ def apply_conservative_correction(original_mask, metrics_short, metrics_long, me
     corrected = original_mask.copy()
     target_voxels = (original_mask == target_class)
     
+    print(f"\nConservative thresholds: freq_short={thresholds['min_short_frequency']}, flip={thresholds['max_flip_rate']}, freq_long={thresholds['min_long_frequency']}, size={thresholds['min_component_size']}")
+    
     unstable_short = metrics_short['frequency'] < thresholds['min_short_frequency']
     high_flip = metrics_short['flip_rate'] > thresholds['max_flip_rate']
     unstable_long = metrics_long['frequency'] < thresholds['min_long_frequency']
@@ -26,12 +28,14 @@ def apply_conservative_correction(original_mask, metrics_short, metrics_long, me
          c2 = np.clip((metrics_short['flip_rate']-thresholds['max_flip_rate'])/thresholds['max_flip_rate'],0,1)
          conf[noise_mask] = (c1+c2)[noise_mask] / 2
          
-    print(f"Conservative: Corrected {np.sum(noise_mask)} voxels")
+    print(f"Conservative: Corrected {np.sum(noise_mask)} voxels (to_pore={np.sum(relabel_pore)}, to_solid={np.sum(relabel_solid)})")
     return corrected, conf
 
 def apply_aggressive_correction(original_mask, metrics_short, metrics_long, metrics_2d, thresholds, target_class=1):
     corrected = original_mask.copy()
     target_voxels = (original_mask == target_class)
+    
+    print(f"\nAggressive thresholds: freq_short={thresholds['min_short_frequency']}, flip={thresholds['max_flip_rate']}, freq_long={thresholds['min_long_frequency']}, size={thresholds['min_component_size']}")
     
     unstable_short = metrics_short['frequency'] < thresholds['min_short_frequency']
     high_flip = metrics_short['flip_rate'] > thresholds['max_flip_rate']
@@ -48,5 +52,5 @@ def apply_aggressive_correction(original_mask, metrics_short, metrics_long, metr
     corrected[relabel_solid] = 2
     
     conf = np.zeros_like(original_mask, dtype=np.float32)
-    print(f"Aggressive: Corrected {np.sum(noise_mask)} voxels")
+    print(f"Aggressive: Corrected {np.sum(noise_mask)} voxels (to_pore={np.sum(relabel_pore)}, to_solid={np.sum(relabel_solid)})")
     return corrected, conf

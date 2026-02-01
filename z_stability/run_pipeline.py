@@ -27,13 +27,25 @@ def main():
     out_path = Path(config['output']['output_folder']) / get_scan_name(scan_folder)
     
     mask_cons, conf_cons = apply_conservative_correction(mask_volume, m_short, m_long, m_2d, config['thresholds']['conservative'])
+    mask_agg, conf_agg = apply_aggressive_correction(mask_volume, m_short, m_long, m_2d, config['thresholds']['aggressive'])
+    
+    # Validation: ensure masks are different
+    assert not np.array_equal(mask_cons, mask_agg), "ERROR: Conservative and aggressive masks are identical!"
+    
+    # Log statistics
+    print(f"\n=== MASK STATISTICS ===")
+    print(f"Conservative: unique={np.unique(mask_cons)}, sum={np.sum(mask_cons)}, voxels={mask_cons.size}")
+    print(f"Aggressive:   unique={np.unique(mask_agg)}, sum={np.sum(mask_agg)}, voxels={mask_agg.size}")
+    diff_count = np.sum(mask_cons != mask_agg)
+    print(f"Difference:   {diff_count} voxels differ ({100*diff_count/mask_cons.size:.2f}%)")
+    
+    # Save
     save_mask(mask_cons, str(out_path / "mask_conservative"))
     save_diagnostic_map(conf_cons, str(out_path / "conf_conservative"), colormap='hot')
-    
-    mask_agg, conf_agg = apply_aggressive_correction(mask_volume, m_short, m_long, m_2d, config['thresholds']['aggressive'])
     save_mask(mask_agg, str(out_path / "mask_aggressive"))
+    save_diagnostic_map(conf_agg, str(out_path / "conf_aggressive"), colormap='hot')
     
-    print("Done!")
+    print("\nDone!")
 
 if __name__ == "__main__":
     main()

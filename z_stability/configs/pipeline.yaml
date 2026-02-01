@@ -6,15 +6,15 @@ windows:
 target_class: 1
 thresholds:
   conservative:
-    min_short_frequency: 0.4
-    max_flip_rate: 3
-    min_long_frequency: 0.2
-    min_component_size: 5
-  aggressive:
     min_short_frequency: 0.6
     max_flip_rate: 2
     min_long_frequency: 0.3
     min_component_size: 10
+  aggressive:
+    min_short_frequency: 0.4
+    max_flip_rate: 3
+    min_long_frequency: 0.2
+    min_component_size: 5
 compute:
   use_gpu: false
 output:
