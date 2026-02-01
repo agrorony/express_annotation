@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.ndimage import label, convolve
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Any
 try:
     import torch
     TORCH_AVAILABLE = True
@@ -254,7 +254,7 @@ def _compute_z_run_length_gpu(volume: np.ndarray, target_class: int) -> Dict[str
         'median_run_length': median_run
     }
 
-def compute_component_persistence(mask: np.ndarray, target_class: int) -> Dict[str, any]:
+def compute_component_persistence(mask: np.ndarray, target_class: int) -> Dict[str, Any]:
     """
     Track connected components slice-to-slice and measure persistence.
     

@@ -10,5 +10,5 @@ __pycache__/
 *.pyd
 .Python
 
-# Test files (keep in repo but ignore output)
-*.npy
+# Generated output files only (not test fixtures)
+outputs/**/*.npy
