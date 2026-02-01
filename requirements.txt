@@ -2,3 +2,8 @@ flask
 imageio
 numpy
 requests
+torch
+scipy
+pillow
+pyyaml
+matplotlib
