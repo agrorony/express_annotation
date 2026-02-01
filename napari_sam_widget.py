@@ -6,7 +6,7 @@ import requests
 import imageio.v3 as iio
 from magicgui import magicgui
 import napari
-from napari.layers import Image
+from napari.layers import Image, Labels
 
 
 def _encode_png_base64(image: np.ndarray) -> str:
@@ -23,9 +23,12 @@ def _decode_png_base64(encoded_png: str) -> np.ndarray:
 @magicgui(
     call_button="Run SAM Inference",
     server_url={"label": "Server Base URL"},
+    mask_layer={"label": "Mask Layer"},
     viewer={"visible": False},
 )
-def sam_inference_widget(viewer: napari.Viewer, server_url: str = "") -> None:
+def sam_inference_widget(
+    viewer: napari.Viewer, server_url: str = "", mask_layer: Labels | None = None
+) -> None:
     layer = viewer.layers.selection.active
     if layer is None:
         raise AssertionError("No active layer selected.")
@@ -36,10 +39,30 @@ def sam_inference_widget(viewer: napari.Viewer, server_url: str = "") -> None:
     if image.ndim != 2:
         raise AssertionError("Active image layer must be a 2D array.")
 
+    # Encode the image as before
     encoded_image = _encode_png_base64(image)
+
+    # Require a Labels layer to be selected for sending input_mask
+    if mask_layer is None:
+        raise AssertionError(
+            "No mask layer selected. Please select a Labels layer to send as input_mask."
+        )
+    if not isinstance(mask_layer, Labels):
+        raise AssertionError("Selected layer is not a Labels layer.")
+
+    mask = np.asarray(mask_layer.data)
+    if mask.shape != image.shape:
+        raise AssertionError(
+            f"Mask shape {mask.shape} does not match image shape {image.shape}."
+        )
+
+    # Binary mask strategy: treat any non-zero label as foreground
+    binary_mask = (mask > 0).astype(np.uint8) * 255
+
+    encoded_mask = _encode_png_base64(binary_mask)
     payload = {
         "image": encoded_image,
-        "box": [50, 50, 300, 300],
+        "input_mask": encoded_mask,
     }
 
     url = server_url.rstrip("/") + "/predict"
