@@ -1,7 +1,7 @@
 import numpy as np
 from typing import Dict, Tuple
 
-def apply_conservative_correction(original_mask, metrics_short, metrics_long, metrics_2d, thresholds, target_class=1):
+def apply_conservative_correction(original_mask, metrics_short, metrics_long, metrics_2d, thresholds, target_class=127):
     corrected = original_mask.copy()
     target_voxels = (original_mask == target_class)
     
@@ -27,7 +27,7 @@ def apply_conservative_correction(original_mask, metrics_short, metrics_long, me
     relabel_solid = noise_mask & (metrics_short['class_0_fraction'] <= metrics_short['class_2_fraction'])
     
     corrected[relabel_pore] = 0
-    corrected[relabel_solid] = 2
+    corrected[relabel_solid] = 255
     
     # Simple confidence
     conf = np.zeros_like(original_mask, dtype=np.float32)
@@ -39,7 +39,7 @@ def apply_conservative_correction(original_mask, metrics_short, metrics_long, me
     print(f"Conservative: Corrected {np.sum(noise_mask)} voxels (to_pore={np.sum(relabel_pore)}, to_solid={np.sum(relabel_solid)})")
     return corrected, conf
 
-def apply_aggressive_correction(original_mask, metrics_short, metrics_long, metrics_2d, thresholds, target_class=1):
+def apply_aggressive_correction(original_mask, metrics_short, metrics_long, metrics_2d, thresholds, target_class=127):
     corrected = original_mask.copy()
     target_voxels = (original_mask == target_class)
     
@@ -65,7 +65,7 @@ def apply_aggressive_correction(original_mask, metrics_short, metrics_long, metr
     relabel_solid = noise_mask & (metrics_short['class_0_fraction'] <= metrics_short['class_2_fraction'])
     
     corrected[relabel_pore] = 0
-    corrected[relabel_solid] = 2
+    corrected[relabel_solid] = 255
     
     conf = np.zeros_like(original_mask, dtype=np.float32)
     print(f"Aggressive: Corrected {np.sum(noise_mask)} voxels (to_pore={np.sum(relabel_pore)}, to_solid={np.sum(relabel_solid)})")

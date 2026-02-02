@@ -30,7 +30,7 @@ def compute_z_metrics(volume: np.ndarray, target_class: int, window_size: int) -
         effective_window_size[z, :, :] = window_len
         frequency[z] = np.sum(window == target_class, axis=0).astype(np.float32) / window_len
         class_0_fraction[z] = np.sum(window == 0, axis=0).astype(np.float32) / window_len
-        class_2_fraction[z] = np.sum(window == 2, axis=0).astype(np.float32) / window_len
+        class_2_fraction[z] = np.sum(window == 255, axis=0).astype(np.float32) / window_len
         if window_len > 1:
             transitions = np.diff(window, axis=0) != 0
             flip_rate[z] = np.sum(transitions, axis=0).astype(np.int32)
@@ -68,7 +68,7 @@ def compute_2d_metrics(slice_mask: np.ndarray, target_class: int) -> Dict[str, n
     total_neighbors = convolve(np.ones_like(slice_mask, dtype=np.float32), kernel, mode='constant', cval=0)
     
     class_0_neighbor_counts = convolve((slice_mask == 0).astype(np.float32), kernel, mode='constant', cval=0)
-    class_2_neighbor_counts = convolve((slice_mask == 2).astype(np.float32), kernel, mode='constant', cval=0)
+    class_2_neighbor_counts = convolve((slice_mask == 255).astype(np.float32), kernel, mode='constant', cval=0)
     
     with np.errstate(divide='ignore', invalid='ignore'):
         c0 = np.nan_to_num(class_0_neighbor_counts / total_neighbors)

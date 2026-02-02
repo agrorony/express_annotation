@@ -3,7 +3,7 @@ data:
 windows:
   short: 3
   long: 7
-target_class: 1
+target_class: 127
 thresholds:
   conservative:
     min_short_frequency: 0.6
