@@ -24,14 +24,14 @@ def main():
     mask_volume = load_mask_stack(str(Path(scan_folder)/"masks"))
     total_voxels = mask_volume.size
     class_0_count = np.sum(mask_volume == 0)
-    class_1_count = np.sum(mask_volume == 1)
-    class_2_count = np.sum(mask_volume == 2)
+    class_127_count = np.sum(mask_volume == 127)
+    class_255_count = np.sum(mask_volume == 255)
     target_count = np.sum(mask_volume == target_class)
     target_fraction = (target_count / total_voxels) if total_voxels else 0.0
     print("\n=== MASK VOLUME COUNTS ===")
-    print(f"Class 0 voxels: {class_0_count}")
-    print(f"Class 1 voxels: {class_1_count}")
-    print(f"Class 2 voxels: {class_2_count}")
+    print(f"Value 0 voxels: {class_0_count}")
+    print(f"Value 127 voxels: {class_127_count}")
+    print(f"Value 255 voxels: {class_255_count}")
     print(f"Total voxels: {total_voxels}")
     print(f"Target class {target_class}: {target_count} ({target_fraction:.4f} fraction)")
     
@@ -77,8 +77,12 @@ def main():
     # Correction
     out_path = Path(config['output']['output_folder']) / get_scan_name(scan_folder)
     
-    mask_cons, conf_cons = apply_conservative_correction(mask_volume, m_short, m_long, m_2d, config['thresholds']['conservative'])
-    mask_agg, conf_agg = apply_aggressive_correction(mask_volume, m_short, m_long, m_2d, config['thresholds']['aggressive'])
+    mask_cons, conf_cons = apply_conservative_correction(
+        mask_volume, m_short, m_long, m_2d, config['thresholds']['conservative'], target_class=target_class
+    )
+    mask_agg, conf_agg = apply_aggressive_correction(
+        mask_volume, m_short, m_long, m_2d, config['thresholds']['aggressive'], target_class=target_class
+    )
     
     # Validation: ensure masks are different
     assert not np.array_equal(mask_cons, mask_agg), "ERROR: Conservative and aggressive masks are identical!"
