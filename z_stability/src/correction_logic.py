@@ -11,9 +11,17 @@ def apply_conservative_correction(original_mask, metrics_short, metrics_long, me
     high_flip = metrics_short['flip_rate'] > thresholds['max_flip_rate']
     unstable_long = metrics_long['frequency'] < thresholds['min_long_frequency']
     small_comp = metrics_2d['component_size'] < thresholds['min_component_size']
+    target_total = np.sum(target_voxels)
+    denom = target_total if target_total else 1
+    print("Conservative diagnostics (target class):")
+    print(f"  unstable_short: {np.sum(target_voxels & unstable_short)} ({100*np.sum(target_voxels & unstable_short)/denom:.2f}%)")
+    print(f"  high_flip:      {np.sum(target_voxels & high_flip)} ({100*np.sum(target_voxels & high_flip)/denom:.2f}%)")
+    print(f"  unstable_long:  {np.sum(target_voxels & unstable_long)} ({100*np.sum(target_voxels & unstable_long)/denom:.2f}%)")
+    print(f"  small_comp:     {np.sum(target_voxels & small_comp)} ({100*np.sum(target_voxels & small_comp)/denom:.2f}%)")
     
     # Conservative: Require ALL bad signs
     noise_mask = target_voxels & unstable_short & high_flip & unstable_long & small_comp
+    print(f"  noise_mask:     {np.sum(noise_mask)} ({100*np.sum(noise_mask)/denom:.2f}%)")
     
     relabel_pore = noise_mask & (metrics_short['class_0_fraction'] > metrics_short['class_2_fraction'])
     relabel_solid = noise_mask & (metrics_short['class_0_fraction'] <= metrics_short['class_2_fraction'])
@@ -41,9 +49,17 @@ def apply_aggressive_correction(original_mask, metrics_short, metrics_long, metr
     high_flip = metrics_short['flip_rate'] > thresholds['max_flip_rate']
     unstable_long = metrics_long['frequency'] < thresholds['min_long_frequency']
     small_comp = metrics_2d['component_size'] < thresholds['min_component_size']
+    target_total = np.sum(target_voxels)
+    denom = target_total if target_total else 1
+    print("Aggressive diagnostics (target class):")
+    print(f"  unstable_short: {np.sum(target_voxels & unstable_short)} ({100*np.sum(target_voxels & unstable_short)/denom:.2f}%)")
+    print(f"  high_flip:      {np.sum(target_voxels & high_flip)} ({100*np.sum(target_voxels & high_flip)/denom:.2f}%)")
+    print(f"  unstable_long:  {np.sum(target_voxels & unstable_long)} ({100*np.sum(target_voxels & unstable_long)/denom:.2f}%)")
+    print(f"  small_comp:     {np.sum(target_voxels & small_comp)} ({100*np.sum(target_voxels & small_comp)/denom:.2f}%)")
     
     # Aggressive: Require ANY bad sign
     noise_mask = target_voxels & (unstable_short | high_flip | unstable_long | small_comp)
+    print(f"  noise_mask:     {np.sum(noise_mask)} ({100*np.sum(noise_mask)/denom:.2f}%)")
     
     relabel_pore = noise_mask & (metrics_short['class_0_fraction'] > metrics_short['class_2_fraction'])
     relabel_solid = noise_mask & (metrics_short['class_0_fraction'] <= metrics_short['class_2_fraction'])

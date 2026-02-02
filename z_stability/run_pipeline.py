@@ -22,11 +22,57 @@ def main():
     
     # Load
     mask_volume = load_mask_stack(str(Path(scan_folder)/"masks"))
+    total_voxels = mask_volume.size
+    class_0_count = np.sum(mask_volume == 0)
+    class_1_count = np.sum(mask_volume == 1)
+    class_2_count = np.sum(mask_volume == 2)
+    target_count = np.sum(mask_volume == target_class)
+    target_fraction = (target_count / total_voxels) if total_voxels else 0.0
+    print("\n=== MASK VOLUME COUNTS ===")
+    print(f"Class 0 voxels: {class_0_count}")
+    print(f"Class 1 voxels: {class_1_count}")
+    print(f"Class 2 voxels: {class_2_count}")
+    print(f"Total voxels: {total_voxels}")
+    print(f"Target class {target_class}: {target_count} ({target_fraction:.4f} fraction)")
     
     # Metrics
     m_short = compute_z_metrics(mask_volume, target_class, config['windows']['short'])
     m_long = compute_z_metrics(mask_volume, target_class, config['windows']['long'])
     m_2d = compute_2d_metrics_stack(mask_volume, target_class)
+    
+    target_voxels = (mask_volume == target_class)
+    target_total = np.sum(target_voxels)
+    if target_total == 0:
+        print("\n=== Z-METRIC DIAGNOSTICS (target class) ===")
+        print("No target_class voxels found; skipping Z-metric diagnostics.")
+    else:
+        flip_rate = m_short['flip_rate'][target_voxels]
+        freq_short = m_short['frequency'][target_voxels]
+        freq_long = m_long['frequency'][target_voxels]
+        flip_gt_zero = np.sum(flip_rate > 0)
+        flip_gt_zero_pct = 100 * flip_gt_zero / target_total
+        print("\n=== Z-METRIC DIAGNOSTICS (target class) ===")
+        print(f"Flip rate: min={np.min(flip_rate):.6f}, max={np.max(flip_rate):.6f}, mean={np.mean(flip_rate):.6f}, >0={flip_gt_zero} ({flip_gt_zero_pct:.2f}%)")
+        print(
+            "Frequency (short): "
+            f"min={np.min(freq_short):.6f}, mean={np.mean(freq_short):.6f}, median={np.median(freq_short):.6f}, "
+            f"p5={np.percentile(freq_short, 5):.6f}, p95={np.percentile(freq_short, 95):.6f}"
+        )
+        print(
+            "Frequency (long):  "
+            f"min={np.min(freq_long):.6f}, mean={np.mean(freq_long):.6f}, median={np.median(freq_long):.6f}, "
+            f"p5={np.percentile(freq_long, 5):.6f}, p95={np.percentile(freq_long, 95):.6f}"
+        )
+        cons_thresholds = config['thresholds']['conservative']
+        unstable_short = m_short['frequency'] < cons_thresholds['min_short_frequency']
+        unstable_long = m_long['frequency'] < cons_thresholds['min_long_frequency']
+        short_only = np.sum(target_voxels & unstable_short & ~unstable_long)
+        long_only = np.sum(target_voxels & ~unstable_short & unstable_long)
+        print(
+            "Unstable frequency (conservative thresholds): "
+            f"short_only={short_only} ({100*short_only/target_total:.2f}%), "
+            f"long_only={long_only} ({100*long_only/target_total:.2f}%)"
+        )
     
     # Correction
     out_path = Path(config['output']['output_folder']) / get_scan_name(scan_folder)
