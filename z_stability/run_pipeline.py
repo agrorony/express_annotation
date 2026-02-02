@@ -6,8 +6,7 @@ sys.path.insert(0, "src")
 
 from io_utils import load_mask_stack, save_mask, save_diagnostic_map, get_scan_name
 from metrics_engine import (compute_z_metrics, compute_2d_metrics_stack, 
-                             compute_adjacent_slice_consistency, compute_z_run_length_stability,
-                             compute_component_persistence)
+                             compute_adjacent_slice_consistency, compute_z_run_length_stability)
 from correction_logic import apply_conservative_correction, apply_aggressive_correction
 
 def main():
@@ -35,9 +34,17 @@ def main():
     print(f"Total voxels: {total_voxels}")
     print(f"Target class {target_class}: {target_count} ({target_fraction:.4f} fraction)")
     
+    compute_config = config.get('compute', {})
+    use_gpu = bool(compute_config.get('use_gpu_metrics', False))
+    validate_gpu = bool(compute_config.get('validate_gpu_metrics', False))
+
     # Metrics
-    m_short = compute_z_metrics(mask_volume, target_class, config['windows']['short'])
-    m_long = compute_z_metrics(mask_volume, target_class, config['windows']['long'])
+    m_short = compute_z_metrics(
+        mask_volume, target_class, config['windows']['short'], use_gpu=use_gpu, validate_gpu=validate_gpu
+    )
+    m_long = compute_z_metrics(
+        mask_volume, target_class, config['windows']['long'], use_gpu=use_gpu, validate_gpu=validate_gpu
+    )
     m_2d = compute_2d_metrics_stack(mask_volume, target_class)
     
     target_voxels = (mask_volume == target_class)
@@ -109,25 +116,25 @@ def main():
         print("\nComputing Z-stability metrics...")
         
         # Conservative mask metrics
-        dice_cons = compute_adjacent_slice_consistency(mask_cons, target_class)
+        dice_cons = compute_adjacent_slice_consistency(
+            mask_cons, target_class, use_gpu=use_gpu, validate_gpu=validate_gpu
+        )
         run_cons = compute_z_run_length_stability(mask_cons, target_class)
-        comp_cons = compute_component_persistence(mask_cons, target_class)
         
         # Aggressive mask metrics
-        dice_agg = compute_adjacent_slice_consistency(mask_agg, target_class)
+        dice_agg = compute_adjacent_slice_consistency(
+            mask_agg, target_class, use_gpu=use_gpu, validate_gpu=validate_gpu
+        )
         run_agg = compute_z_run_length_stability(mask_agg, target_class)
-        comp_agg = compute_component_persistence(mask_agg, target_class)
         
         # Print minimal summary
         print("\nConservative:")
         print(f"  Mean adjacent Dice: {np.mean(dice_cons):.4f}")
         print(f"  Median run length: {run_cons['median_run_length']:.2f}")
-        print(f"  Mean persistence: {comp_cons['mean_persistence']:.2f}")
         
         print("\nAggressive:")
         print(f"  Mean adjacent Dice: {np.mean(dice_agg):.4f}")
         print(f"  Median run length: {run_agg['median_run_length']:.2f}")
-        print(f"  Mean persistence: {comp_agg['mean_persistence']:.2f}")
     
     print("\nDone!")
 

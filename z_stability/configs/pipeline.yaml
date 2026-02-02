@@ -16,7 +16,8 @@ thresholds:
     min_long_frequency: 0.2
     min_component_size: 5
 compute:
-  use_gpu: false
+  use_gpu_metrics: false
+  validate_gpu_metrics: false
 output:
   save_diagnostic_maps: true
   output_folder: "outputs"

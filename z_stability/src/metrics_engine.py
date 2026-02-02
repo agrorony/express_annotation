@@ -1,8 +1,31 @@
+import importlib
+import importlib.util
 import numpy as np
 from scipy.ndimage import label, convolve
 from typing import Dict
 
-def compute_z_metrics(volume: np.ndarray, target_class: int, window_size: int) -> Dict[str, np.ndarray]:
+def _torch_available() -> bool:
+    return importlib.util.find_spec("torch") is not None
+
+
+def _get_torch():
+    if not _torch_available():
+        return None
+    return importlib.import_module("torch")
+
+
+def _configure_torch_determinism(torch_module) -> None:
+    torch_module.backends.cudnn.deterministic = True
+    torch_module.backends.cudnn.benchmark = False
+    try:
+        torch_module.use_deterministic_algorithms(True)
+    except Exception as exc:
+        raise RuntimeError(
+            "Deterministic algorithms are required for GPU metrics but could not be enabled."
+        ) from exc
+
+
+def _compute_z_metrics_cpu(volume: np.ndarray, target_class: int, window_size: int) -> Dict[str, np.ndarray]:
     """
     Compute Z-axis stability metrics including frequency, flip rate, and class fractions.
     
@@ -37,6 +60,103 @@ def compute_z_metrics(volume: np.ndarray, target_class: int, window_size: int) -
             
     return {'frequency': frequency, 'flip_rate': flip_rate, 'class_0_fraction': class_0_fraction, 
             'class_2_fraction': class_2_fraction, 'effective_window_size': effective_window_size}
+
+
+def _compute_z_metrics_gpu(volume: np.ndarray, target_class: int, window_size: int) -> Dict[str, np.ndarray]:
+    torch = _get_torch()
+    if torch is None:
+        raise RuntimeError("Torch is not available for GPU metrics.")
+    _configure_torch_determinism(torch)
+    device = torch.device("cuda")
+
+    volume_t = torch.as_tensor(volume, device=device)
+    Z, Y, X = volume_t.shape
+    half_window = window_size // 2
+
+    z_idx = torch.arange(Z, device=device, dtype=torch.long)
+    z_start = torch.clamp(z_idx - half_window, min=0)
+    z_end = torch.clamp(z_idx + half_window + 1, max=Z)
+    window_len = (z_end - z_start).to(torch.int32)
+    window_len_f = window_len.to(torch.float32).view(Z, 1, 1)
+    window_len_full = window_len.view(Z, 1, 1).expand(Z, Y, X)
+
+    def window_sum(indicator: "torch.Tensor") -> "torch.Tensor":
+        indicator_int = indicator.to(torch.int32)
+        cumsum = torch.cumsum(indicator_int, dim=0)
+        padded = torch.cat(
+            [torch.zeros((1, Y, X), device=device, dtype=cumsum.dtype), cumsum],
+            dim=0,
+        )
+        return padded[z_end] - padded[z_start]
+
+    target_counts = window_sum(volume_t == target_class)
+    class_0_counts = window_sum(volume_t == 0)
+    class_2_counts = window_sum(volume_t == 255)
+
+    frequency = target_counts.to(torch.float32) / window_len_f
+    class_0_fraction = class_0_counts.to(torch.float32) / window_len_f
+    class_2_fraction = class_2_counts.to(torch.float32) / window_len_f
+
+    transitions = volume_t[1:] != volume_t[:-1]
+    trans_int = transitions.to(torch.int32)
+    trans_cumsum = torch.cumsum(trans_int, dim=0)
+    trans_padded = torch.cat(
+        [torch.zeros((1, Y, X), device=device, dtype=trans_cumsum.dtype), trans_cumsum],
+        dim=0,
+    )
+    z_end_minus1 = (z_end - 1).to(torch.long)
+    flip_rate = (trans_padded[z_end_minus1] - trans_padded[z_start]).to(torch.int32)
+
+    return {
+        'frequency': frequency.cpu().numpy(),
+        'flip_rate': flip_rate.cpu().numpy(),
+        'class_0_fraction': class_0_fraction.cpu().numpy(),
+        'class_2_fraction': class_2_fraction.cpu().numpy(),
+        'effective_window_size': window_len_full.cpu().numpy(),
+    }
+
+
+def compute_z_metrics(
+    volume: np.ndarray,
+    target_class: int,
+    window_size: int,
+    use_gpu: bool = False,
+    validate_gpu: bool = False,
+) -> Dict[str, np.ndarray]:
+    """
+    Compute Z-axis stability metrics including frequency, flip rate, and class fractions.
+
+    Args:
+        volume: 3D volume (Z, Y, X)
+        target_class: Target class to analyze
+        window_size: Window size for local Z analysis
+        use_gpu: If True and CUDA is available, compute on GPU via PyTorch
+        validate_gpu: If True, assert GPU outputs match CPU outputs exactly
+
+    Returns:
+        Dictionary with metric arrays
+    """
+    if use_gpu and _torch_available():
+        torch = _get_torch()
+        if torch is not None and torch.cuda.is_available():
+            gpu_result = _compute_z_metrics_gpu(volume, target_class, window_size)
+            if validate_gpu:
+                cpu_result = _compute_z_metrics_cpu(volume, target_class, window_size)
+                for key, cpu_value in cpu_result.items():
+                    gpu_value = gpu_result[key]
+                    if np.array_equal(cpu_value, gpu_value):
+                        continue
+                    if cpu_value.dtype.kind in ("f", "c"):
+                        diff = np.abs(cpu_value - gpu_value)
+                        print(
+                            f"GPU mismatch for {key}: "
+                            f"max_abs_diff={np.max(diff):.8f}, "
+                            f"mean_abs_diff={np.mean(diff):.8f}"
+                        )
+                        raise AssertionError(f"GPU mismatch for {key}.")
+                    raise AssertionError(f"GPU mismatch for {key}.")
+            return gpu_result
+    return _compute_z_metrics_cpu(volume, target_class, window_size)
 
 def compute_2d_metrics(slice_mask: np.ndarray, target_class: int) -> Dict[str, np.ndarray]:
     """
@@ -99,7 +219,7 @@ def compute_2d_metrics_stack(volume: np.ndarray, target_class: int) -> Dict[str,
             metrics_3d[k][z] = v
     return metrics_3d
 
-def compute_adjacent_slice_consistency(mask: np.ndarray, target_class: int) -> np.ndarray:
+def _compute_adjacent_slice_consistency_cpu(mask: np.ndarray, target_class: int) -> np.ndarray:
     """
     Compute Dice coefficient between adjacent slices for the target class.
     
@@ -126,6 +246,65 @@ def compute_adjacent_slice_consistency(mask: np.ndarray, target_class: int) -> n
             dice_scores[z] = 1.0  # Both empty, perfect agreement
     
     return dice_scores
+
+
+def _compute_adjacent_slice_consistency_gpu(mask: np.ndarray, target_class: int) -> np.ndarray:
+    torch = _get_torch()
+    if torch is None:
+        raise RuntimeError("Torch is not available for GPU metrics.")
+    _configure_torch_determinism(torch)
+    device = torch.device("cuda")
+
+    mask_t = torch.as_tensor(mask, device=device)
+    target_mask = mask_t == target_class
+    slice_a = target_mask[:-1]
+    slice_b = target_mask[1:]
+
+    intersection = (slice_a & slice_b).sum(dim=(1, 2))
+    union = slice_a.sum(dim=(1, 2)) + slice_b.sum(dim=(1, 2))
+
+    intersection_f = intersection.to(torch.float64)
+    union_f = union.to(torch.float64)
+    ones = torch.ones_like(union_f)
+    dice = torch.where(union_f > 0, (2.0 * intersection_f) / union_f, ones)
+
+    return dice.to(torch.float32).cpu().numpy()
+
+
+def compute_adjacent_slice_consistency(
+    mask: np.ndarray,
+    target_class: int,
+    use_gpu: bool = False,
+    validate_gpu: bool = False,
+) -> np.ndarray:
+    """
+    Compute Dice coefficient between adjacent slices for the target class.
+
+    Args:
+        mask: 3D mask volume (Z, Y, X)
+        target_class: Target class to analyze
+        use_gpu: If True and CUDA is available, compute on GPU via PyTorch
+        validate_gpu: If True, assert GPU outputs match CPU outputs exactly
+
+    Returns:
+        1D array of Dice scores for each adjacent slice pair (length Z-1)
+    """
+    if use_gpu and _torch_available():
+        torch = _get_torch()
+        if torch is not None and torch.cuda.is_available():
+            gpu_result = _compute_adjacent_slice_consistency_gpu(mask, target_class)
+            if validate_gpu:
+                cpu_result = _compute_adjacent_slice_consistency_cpu(mask, target_class)
+                if not np.array_equal(cpu_result, gpu_result):
+                    diff = np.abs(cpu_result - gpu_result)
+                    print(
+                        "GPU mismatch for adjacent slice consistency: "
+                        f"max_abs_diff={np.max(diff):.8f}, "
+                        f"mean_abs_diff={np.mean(diff):.8f}"
+                    )
+                    raise AssertionError("GPU mismatch for adjacent slice consistency.")
+            return gpu_result
+    return _compute_adjacent_slice_consistency_cpu(mask, target_class)
 
 def compute_z_run_length_stability(mask: np.ndarray, target_class: int) -> Dict[str, float]:
     """
