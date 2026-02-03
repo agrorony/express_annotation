@@ -4,6 +4,10 @@ import numpy as np
 from scipy.ndimage import label, convolve
 from typing import Dict
 
+# Class value constants
+PORE_CLASS = 0
+SOLID_CLASS = 254
+
 def _torch_available() -> bool:
     return importlib.util.find_spec("torch") is not None
 
@@ -52,8 +56,8 @@ def _compute_z_metrics_cpu(volume: np.ndarray, target_class: int, window_size: i
         window_len = z_end - z_start
         effective_window_size[z, :, :] = window_len
         frequency[z] = np.sum(window == target_class, axis=0).astype(np.float32) / window_len
-        class_0_fraction[z] = np.sum(window == 0, axis=0).astype(np.float32) / window_len
-        class_2_fraction[z] = np.sum(window == 255, axis=0).astype(np.float32) / window_len
+        class_0_fraction[z] = np.sum(window == PORE_CLASS, axis=0).astype(np.float32) / window_len
+        class_2_fraction[z] = np.sum(window == SOLID_CLASS, axis=0).astype(np.float32) / window_len
         if window_len > 1:
             transitions = np.diff(window, axis=0) != 0
             flip_rate[z] = np.sum(transitions, axis=0).astype(np.int32)
@@ -63,6 +67,7 @@ def _compute_z_metrics_cpu(volume: np.ndarray, target_class: int, window_size: i
 
 
 def _compute_z_metrics_gpu(volume: np.ndarray, target_class: int, window_size: int) -> Dict[str, np.ndarray]:
+    
     torch = _get_torch()
     if torch is None:
         raise RuntimeError("Torch is not available for GPU metrics.")
@@ -90,8 +95,8 @@ def _compute_z_metrics_gpu(volume: np.ndarray, target_class: int, window_size: i
         return padded[z_end] - padded[z_start]
 
     target_counts = window_sum(volume_t == target_class)
-    class_0_counts = window_sum(volume_t == 0)
-    class_2_counts = window_sum(volume_t == 255)
+    class_0_counts = window_sum(volume_t == PORE_CLASS)
+    class_2_counts = window_sum(volume_t == SOLID_CLASS)
 
     frequency = target_counts.to(torch.float32) / window_len_f
     class_0_fraction = class_0_counts.to(torch.float32) / window_len_f
@@ -187,8 +192,8 @@ def compute_2d_metrics(slice_mask: np.ndarray, target_class: int) -> Dict[str, n
     kernel = np.array([[1, 1, 1], [1, 0, 1], [1, 1, 1]], dtype=np.float32)
     total_neighbors = convolve(np.ones_like(slice_mask, dtype=np.float32), kernel, mode='constant', cval=0)
     
-    class_0_neighbor_counts = convolve((slice_mask == 0).astype(np.float32), kernel, mode='constant', cval=0)
-    class_2_neighbor_counts = convolve((slice_mask == 255).astype(np.float32), kernel, mode='constant', cval=0)
+    class_0_neighbor_counts = convolve((slice_mask == PORE_CLASS).astype(np.float32), kernel, mode='constant', cval=0)
+    class_2_neighbor_counts = convolve((slice_mask == SOLID_CLASS).astype(np.float32), kernel, mode='constant', cval=0)
     
     with np.errstate(divide='ignore', invalid='ignore'):
         c0 = np.nan_to_num(class_0_neighbor_counts / total_neighbors)

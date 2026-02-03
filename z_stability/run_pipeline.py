@@ -6,7 +6,8 @@ sys.path.insert(0, "src")
 
 from io_utils import load_mask_stack, save_mask, save_diagnostic_map, get_scan_name
 from metrics_engine import (compute_z_metrics, compute_2d_metrics_stack, 
-                             compute_adjacent_slice_consistency, compute_z_run_length_stability)
+                             compute_adjacent_slice_consistency, compute_z_run_length_stability,
+                             PORE_CLASS, SOLID_CLASS)
 from correction_logic import apply_conservative_correction, apply_aggressive_correction
 
 def main():
@@ -22,15 +23,15 @@ def main():
     # Load
     mask_volume = load_mask_stack(str(Path(scan_folder)/"masks"))
     total_voxels = mask_volume.size
-    class_0_count = np.sum(mask_volume == 0)
+    class_0_count = np.sum(mask_volume == PORE_CLASS)
     class_127_count = np.sum(mask_volume == 127)
-    class_255_count = np.sum(mask_volume == 255)
+    class_254_count = np.sum(mask_volume == SOLID_CLASS)
     target_count = np.sum(mask_volume == target_class)
     target_fraction = (target_count / total_voxels) if total_voxels else 0.0
     print("\n=== MASK VOLUME COUNTS ===")
     print(f"Value 0 voxels: {class_0_count}")
     print(f"Value 127 voxels: {class_127_count}")
-    print(f"Value 255 voxels: {class_255_count}")
+    print(f"Value 254 voxels: {class_254_count}")
     print(f"Total voxels: {total_voxels}")
     print(f"Target class {target_class}: {target_count} ({target_fraction:.4f} fraction)")
     
@@ -103,9 +104,9 @@ def main():
     
     # Save
     save_mask(mask_cons, str(out_path / "mask_conservative"))
-    save_diagnostic_map(conf_cons, str(out_path / "conf_conservative"), colormap='hot')
+    save_diagnostic_map(conf_cons, str(out_path / "conf_conservative"), colormap='hot', vmin=0, vmax=1)
     save_mask(mask_agg, str(out_path / "mask_aggressive"))
-    save_diagnostic_map(conf_agg, str(out_path / "conf_aggressive"), colormap='hot')
+    save_diagnostic_map(conf_agg, str(out_path / "conf_aggressive"), colormap='hot', vmin=0, vmax=1)
     
     # Check if masks are identical
     masks_identical = np.array_equal(mask_cons, mask_agg)

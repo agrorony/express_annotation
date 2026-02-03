@@ -9,6 +9,7 @@ __pycache__/
 *.pyo
 *.pyd
 .Python
+.venv/
 
 # Generated output files only (not test fixtures)
 outputs/**/*.npy

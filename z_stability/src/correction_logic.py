@@ -1,5 +1,8 @@
 import numpy as np
 from typing import Dict, Tuple
+import sys
+sys.path.insert(0, 'src')
+from metrics_engine import PORE_CLASS, SOLID_CLASS
 
 def apply_conservative_correction(original_mask, metrics_short, metrics_long, metrics_2d, thresholds, target_class=127):
     corrected = original_mask.copy()
@@ -26,8 +29,8 @@ def apply_conservative_correction(original_mask, metrics_short, metrics_long, me
     relabel_pore = noise_mask & (metrics_short['class_0_fraction'] > metrics_short['class_2_fraction'])
     relabel_solid = noise_mask & (metrics_short['class_0_fraction'] <= metrics_short['class_2_fraction'])
     
-    corrected[relabel_pore] = 0
-    corrected[relabel_solid] = 255
+    corrected[relabel_pore] = PORE_CLASS
+    corrected[relabel_solid] = SOLID_CLASS
     
     # Simple confidence
     conf = np.zeros_like(original_mask, dtype=np.float32)
@@ -64,9 +67,24 @@ def apply_aggressive_correction(original_mask, metrics_short, metrics_long, metr
     relabel_pore = noise_mask & (metrics_short['class_0_fraction'] > metrics_short['class_2_fraction'])
     relabel_solid = noise_mask & (metrics_short['class_0_fraction'] <= metrics_short['class_2_fraction'])
     
-    corrected[relabel_pore] = 0
-    corrected[relabel_solid] = 255
+    corrected[relabel_pore] = PORE_CLASS
+    corrected[relabel_solid] = SOLID_CLASS
     
     conf = np.zeros_like(original_mask, dtype=np.float32)
+    if np.any(noise_mask):
+        # Blend all available diagnostic scores to highlight aggressive noise candidates
+        freq_short_denom = max(thresholds['min_short_frequency'], 1e-6)
+        freq_long_denom = max(thresholds['min_long_frequency'], 1e-6)
+        flip_denom = max(thresholds['max_flip_rate'], 1)
+        size_denom = max(thresholds['min_component_size'], 1)
+
+        freq_short_score = np.clip(1 - metrics_short['frequency'] / freq_short_denom, 0, 1)
+        freq_long_score = np.clip(1 - metrics_long['frequency'] / freq_long_denom, 0, 1)
+        flip_score = np.clip((metrics_short['flip_rate'] - thresholds['max_flip_rate']) / flip_denom, 0, 1)
+        size_score = np.clip((thresholds['min_component_size'] - metrics_2d['component_size']) / size_denom, 0, 1)
+
+        blended = (freq_short_score + freq_long_score + flip_score + size_score) / 4.0
+        conf[noise_mask] = blended[noise_mask]
+
     print(f"Aggressive: Corrected {np.sum(noise_mask)} voxels (to_pore={np.sum(relabel_pore)}, to_solid={np.sum(relabel_solid)})")
     return corrected, conf
